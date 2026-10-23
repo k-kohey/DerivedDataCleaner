@@ -1,0 +1,30 @@
+{
+  "fill": {
+    "automatic-gradient": "extended-srgb:0.22000,0.31000,0.43000,1.00000"
+  },
+  "groups": [
+    {
+      "name": "Trash",
+      "layers": [
+        {
+          "image-name": "Trash.svg",
+          "name": "Trash"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.2
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.1
+      }
+    }
+  ],
+  "supported-platforms": {
+    "circles": [
+      "watchOS"
+    ],
+    "squares": "shared"
+  }
+}

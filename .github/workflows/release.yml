@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Read version
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)(-[A-Za-z0-9.-]+)?$ ]]; then
+            echo 'Expected a tag such as v1.2.3 or v1.2.3-beta.1' >&2
+            exit 1
+          fi
+          echo "APP_VERSION=${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
+          echo "DMG_PATH=dist/DerivedDataCleaner-${RELEASE_TAG}.dmg" >> "$GITHUB_ENV"
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Test
+        run: |
+          xcodebuild test -project DerivedDataCleaner.xcodeproj \
+            -scheme DerivedDataCleaner -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath .build/Tests CODE_SIGNING_ALLOWED=NO
+
+      - name: Build universal app
+        run: |
+          xcodebuild build -project DerivedDataCleaner.xcodeproj \
+            -scheme DerivedDataCleaner -configuration Release \
+            -destination 'generic/platform=macOS' -derivedDataPath .build/Release \
+            ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- \
+            MARKETING_VERSION="$APP_VERSION" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER"
+          app='.build/Release/Build/Products/Release/DerivedDataCleaner.app'
+          lipo "$app/Contents/MacOS/DerivedDataCleaner" -verify_arch arm64 x86_64
+          lipo "$app/Contents/MacOS/DerivedDataCleanerScheduler" -verify_arch arm64 x86_64
+
+      - name: Package DMG
+        run: |
+          bash scripts/package-dmg.sh \
+            .build/Release/Build/Products/Release/DerivedDataCleaner.app "$DMG_PATH"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: DerivedDataCleaner-${{ github.ref_name }}
+          path: dist/*.dmg
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Keep incomplete uploads in a draft; a rerun can finish the same draft.
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            args=(--draft --verify-tag --generate-notes --title "$RELEASE_TAG")
+            if [[ "$RELEASE_TAG" == *-* ]]; then args+=(--prerelease); fi
+            gh release create "$RELEASE_TAG" "${args[@]}" \
+              --notes 'Requires macOS 26 or later. Universal app for Apple silicon and Intel. This build is ad-hoc signed and is not notarized by Apple.'
+          fi
+          gh release upload "$RELEASE_TAG" "$DMG_PATH" --clobber
+          gh release edit "$RELEASE_TAG" --draft=false

@@ -1,0 +1,16 @@
+.build/
+build/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+dist/
+
+# Local credentials and generated diagnostics
+.env
+.env.*
+*.p12
+*.p8
+*.key
+*.mobileprovision
+*.xcresult/
+*.dSYM/
